@@ -1,0 +1,5 @@
+To compile the project with package structure 
+javac -d . *.java
+
+And to run the project using FULL package name
+java MedicineInventory.MedicineTrackerApp
