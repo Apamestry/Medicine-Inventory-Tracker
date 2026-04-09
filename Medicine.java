@@ -1,96 +1,116 @@
 // =============================================================================
-// FILE 1: Medicine.java  —  DATA MODEL & DEFINITIONS (Header File Equivalent)
+// FILE 1: Medicine.java  --  DATA MODEL & DEFINITIONS (Header File Equivalent)
 // =============================================================================
 // Purpose  : Defines the core data model (Medicine), shared constants,
-//            the InventoryService interface (prototypes), and the BSTNode
-//            used by the expiry-sorted Binary Search Tree.
+//            the InventoryService interface (method prototypes), and the
+//            BTreeNode used by the B-Tree expiry index.
 //
 // Analogous to a C/C++ ".h" header: contains struct definitions, constants,
-// and method prototypes — NO business logic lives here.
+// and method prototypes -- NO business logic lives here.
 //
-// DSA Structures declared here:
-//   • HashMap<String, Medicine>         → O(1) lookup by medicine name
-//   • TreeMap<LocalDate,List<Medicine>> → O(log n) sorted expiry index (BST)
+// DSA Structures declared / documented here:
+//   1. HashMap<String, Medicine>  -- O(1) average lookup by medicine name
+//   2. BTree (via BTreeNode)      -- O(log n) sorted expiry index
+//                                    Self-balancing; order-3 (max 2 keys/node)
 //
-// Project   : Medicine Inventory Tracker — DSA Project
-// Team      : Aakanksha (2501) · Apa (2512) · Brandon (2514)
-//             Chetan (2516)   · Sherine (2544)
+// Project   : Medicine Inventory Tracker -- DSA Project
+// Team      : Aakanksha (2501) . Apa (2512) . Brandon (2514)
+//             Chetan (2516)   . Sherine (2544)
 // =============================================================================
 
 package MedicineInventory;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SECTION 1 ─ CONSTANTS  (shared across all files)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+// SECTION 1 -- CONSTANTS
+// -----------------------------------------------------------------------------
 
 /**
- * AppConstants holds every magic number / string used across the project.
- * Centralising them here makes threshold tuning trivial.
+ * AppConstants centralises every configurable value used across the project.
+ * Modify thresholds here; changes propagate automatically to all modules.
  */
 final class AppConstants {
 
-    private AppConstants() {}   // Utility class — prevent instantiation
+    private AppConstants() {}   // Utility class -- prevent instantiation
 
-    /** Medicines with quantity BELOW this value trigger a low-stock alert. */
-    public static final int    LOW_STOCK_THRESHOLD  = 20;
+    /** Stock quantity below which a low-stock alert is raised. */
+    public static final int    LOW_STOCK_THRESHOLD = 20;
 
-    /** Medicines expiring within this many days trigger an expiry alert. */
-    public static final int    EXPIRY_ALERT_DAYS    = 30;
+    /** Days until expiry below which an expiry alert is raised. */
+    public static final int    EXPIRY_ALERT_DAYS   = 30;
 
-    /** Expected date format for all user / data input. */
-    public static final String DATE_FORMAT          = "YYYY-MM-DD";
+    /** Expected date input format. */
+    public static final String DATE_FORMAT         = "YYYY-MM-DD";
 
-    /** Column width used in formatted table output. */
-    public static final int    COL_NAME_WIDTH       = 20;
-    public static final int    COL_BATCH_WIDTH      = 12;
+    // -- Column widths for aligned table output --
+    public static final int    COL_BATCH_WIDTH     = 12;
+    public static final int    COL_NAME_WIDTH      = 18;
+    public static final int    COL_QTY_WIDTH       = 6;
+    public static final int    COL_DATE_WIDTH      = 12;
 
-    /** Separator line drawn in the console for readability. */
-    public static final String SEPARATOR =
-        "─────────────────────────────────────────────────────────────";
+    /** Full-width horizontal separator for console output. */
+    public static final String SEP_HEAVY =
+        "=============================================================================";
 
-    /** Header row for the inventory table display. */
+    /** Mid-weight separator for sub-sections. */
+    public static final String SEP_LIGHT =
+        "-----------------------------------------------------------------------------";
+
+    /** Column header row, aligned to COL_*_WIDTH constants. */
     public static final String TABLE_HEADER = String.format(
-        "%-" + COL_BATCH_WIDTH + "s │ %-" + COL_NAME_WIDTH + "s │ %-6s │ %-12s │ %s",
+        "  %-" + COL_BATCH_WIDTH + "s  %-" + COL_NAME_WIDTH
+            + "s  %-" + COL_QTY_WIDTH + "s  %-" + COL_DATE_WIDTH
+            + "s  %s",
         "Batch No.", "Medicine Name", "Qty", "Expiry Date", "Status"
     );
+
+    /**
+     * B-Tree order.
+     * Each node may hold at most (ORDER - 1) keys and ORDER children.
+     * A node is split when it contains (ORDER - 1) keys and a new key
+     * must be inserted into it.
+     */
+    public static final int    BTREE_ORDER         = 3;
 }
 
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SECTION 2 ─ MEDICINE (Data Model / Struct)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+// SECTION 2 -- MEDICINE (Data Model)
+// -----------------------------------------------------------------------------
 
 /**
- * Medicine — immutable value object representing a single medicine entry.
+ * Medicine -- value object representing one inventory entry.
  *
  * Fields
- * ──────
- *  name       : Medicine name used as the HashMap key (lowercase-normalised).
- *  batchNo    : Unique batch identifier (e.g. "B-001").
- *  quantity   : Current stock count in units.
- *  expiryDate : Parsed LocalDate; also the key in the TreeMap expiry index.
+ * ------
+ *  name       : Display name; lower-cased form is the HashMap key.
+ *  batchNo    : Batch identifier (upper-cased on construction).
+ *  quantity   : Current stock units; mutable via updateQuantity().
+ *  expiryDate : Parsed LocalDate; serves as the B-Tree key.
  *
- * DSA role: this object is stored as the VALUE in the HashMap and as
- * elements inside each List<Medicine> bucket of the TreeMap.
+ * DSA roles
+ * ---------
+ *  HashMap : Medicine is the VALUE; name.toLowerCase() is the KEY.
+ *  B-Tree  : Medicine objects are stored inside BTreeNode.entries
+ *            lists, keyed on expiryDate.
  */
 class Medicine {
 
-    // ── Fields ──────────────────────────────────────────────────────────────
     public final String    name;
     public final String    batchNo;
-    public       int       quantity;   // mutable — stock levels change
+    public       int       quantity;    // mutable -- stock changes over time
     public final LocalDate expiryDate;
 
-    // ── Constructor ─────────────────────────────────────────────────────────
-
     /**
-     * @param name       Medicine name (any case — normalised internally).
-     * @param batchNo    Batch identifier string.
-     * @param quantity   Initial stock quantity (must be ≥ 0).
-     * @param expiryDate ISO date string "YYYY-MM-DD"; parsed to LocalDate.
+     * Constructs a Medicine record.
+     *
+     * @param name       Medicine name (trimmed; any case accepted).
+     * @param batchNo    Batch identifier (trimmed; stored upper-case).
+     * @param quantity   Initial stock count (caller must ensure >= 0).
+     * @param expiryDate ISO-8601 date string "YYYY-MM-DD".
      * @throws java.time.format.DateTimeParseException if date is malformed.
      */
     public Medicine(String name, String batchNo, int quantity, String expiryDate) {
@@ -100,127 +120,168 @@ class Medicine {
         this.expiryDate = LocalDate.parse(expiryDate.trim());
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────────────
-
     /**
-     * Returns the canonical HashMap key for this medicine
-     * (lowercase, trimmed name — matches how the map is keyed).
+     * Returns the canonical HashMap key for this medicine.
+     * Always lower-case so lookups are case-insensitive.
      */
     public String getKey() {
         return name.toLowerCase();
     }
 
     /**
-     * Formatted single-row string for table display.
-     * Columns are padded to match AppConstants.TABLE_HEADER widths.
+     * Formats this medicine as one aligned table row.
      *
-     * @param statusTag  Short status string, e.g. "⚠ EXPIRING SOON"
+     * @param statusTag Short status label (e.g. "EXPIRED", "OK", "LOW STOCK").
+     * @return Formatted row string ready for System.out.println().
      */
     public String toTableRow(String statusTag) {
         return String.format(
-            "%-" + AppConstants.COL_BATCH_WIDTH + "s │ %-"
-                + AppConstants.COL_NAME_WIDTH + "s │ %-6d │ %-12s │ %s",
+            "  %-" + AppConstants.COL_BATCH_WIDTH
+                + "s  %-" + AppConstants.COL_NAME_WIDTH
+                + "s  %-" + AppConstants.COL_QTY_WIDTH
+                + "d  %-" + AppConstants.COL_DATE_WIDTH
+                + "s  %s",
             batchNo, name, quantity, expiryDate, statusTag
         );
     }
 
-    /** Simple toString used in search results and alerts. */
+    /** Compact single-line representation used in alert messages. */
     @Override
     public String toString() {
-        return String.format(
-            "Batch: %-" + AppConstants.COL_BATCH_WIDTH + "s | Name: %-"
-                + AppConstants.COL_NAME_WIDTH + "s | Qty: %-6d | Expiry: %s",
-            batchNo, name, quantity, expiryDate
-        );
+        return String.format("[%-" + AppConstants.COL_BATCH_WIDTH
+                + "s]  %-" + AppConstants.COL_NAME_WIDTH
+                + "s  Qty: %-6d  Expires: %s",
+                batchNo, name, quantity, expiryDate);
     }
 }
 
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SECTION 3 ─ BST NODE (used by the expiry-sorted tree)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+// SECTION 3 -- B-TREE NODE
+// -----------------------------------------------------------------------------
 
 /**
- * BSTNode — node definition for the manual Binary Search Tree (expiry index).
+ * BTreeNode -- a single node in the B-Tree expiry index.
  *
- * Each node stores:
- *  • key      : LocalDate (the expiry date — BST ordering criterion)
- *  • medicines: list of medicines sharing that exact expiry date
- *  • left/right children
+ * B-Tree Properties  (order T = AppConstants.BTREE_ORDER = 3)
+ * ------------------------------------------------------------
+ *  - Max keys per node   : T - 1  =  2
+ *  - Max children        : T      =  3
+ *  - Min keys (non-root) : ceil(T/2) - 1  =  1
+ *  - All leaves are at the same depth  (self-balancing guarantee).
+ *  - Keys within each node are in strict ascending order.
  *
- * NOTE: Java's TreeMap already implements a Red-Black BST internally.
- * This explicit node is provided to satisfy the "demonstrate BST" requirement
- * of the DSA project. Both structures are used in InventoryManager.
+ * Key   : LocalDate (expiry date of the medicines in that slot).
+ * Value : List<Medicine> -- all medicines sharing that expiry date.
+ *
+ * Why B-Tree instead of a plain BST?
+ * -----------------------------------
+ *  A plain BST degrades to O(n) height when keys are inserted in sorted
+ *  (or near-sorted) order.  Medicines are typically entered with expiry
+ *  dates in roughly ascending order, which is the pathological case for
+ *  a BST.  The B-Tree splits overflowing nodes upward, guaranteeing
+ *  O(log n) for insert, search, and traversal regardless of input order.
  */
-class BSTNode {
-
-    public LocalDate       key;        // Expiry date — BST key
-    public List<Medicine>  medicines;  // Medicines sharing this expiry
-    public BSTNode         left;
-    public BSTNode         right;
+class BTreeNode {
 
     /**
-     * @param key       The expiry date this node represents.
-     * @param medicines Initial list of medicines at this expiry date.
+     * Keys stored in this node (expiry dates).
+     * Invariant: keys is sorted in ascending order at all times.
      */
-    public BSTNode(LocalDate key, List<Medicine> medicines) {
-        this.key       = key;
-        this.medicines = medicines;
-        this.left      = null;
-        this.right     = null;
+    public List<LocalDate>       keys;
+
+    /**
+     * Parallel list of medicine buckets.
+     * entries.get(i) holds all medicines whose expiry date == keys.get(i).
+     */
+    public List<List<Medicine>>  entries;
+
+    /**
+     * Child pointers.
+     * For an internal node with k keys, children has exactly k+1 elements.
+     * For a leaf node, children is empty.
+     */
+    public List<BTreeNode>       children;
+
+    /** True when this node has no children (is a leaf). */
+    public boolean               isLeaf;
+
+    /** Constructs a new, empty node. */
+    public BTreeNode(boolean isLeaf) {
+        this.isLeaf   = isLeaf;
+        this.keys     = new ArrayList<>();
+        this.entries  = new ArrayList<>();
+        this.children = new ArrayList<>();
+    }
+
+    /**
+     * Returns true when this node has reached maximum key capacity and
+     * must be split before another key can be inserted into it.
+     * Capacity limit = BTREE_ORDER - 1 keys.
+     */
+    public boolean isFull() {
+        return keys.size() == AppConstants.BTREE_ORDER - 1;
+    }
+
+    /**
+     * Finds the insertion/descent index for a given date.
+     * Returns the smallest index i such that date <= keys.get(i),
+     * or keys.size() if date is greater than all current keys.
+     *
+     * Used by insert and search to identify which child subtree to visit.
+     *
+     * @param date The date to locate.
+     * @return Index in [0, keys.size()].
+     */
+    public int findKeyIndex(LocalDate date) {
+        int i = 0;
+        while (i < keys.size() && date.compareTo(keys.get(i)) > 0) {
+            i++;
+        }
+        return i;
     }
 }
 
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SECTION 4 ─ InventoryService INTERFACE (Method Prototypes)
-// ─────────────────────────────────────────────────────────────────────────────
+// -----------------------------------------------------------------------------
+// SECTION 4 -- InventoryService INTERFACE (Method Prototypes)
+// -----------------------------------------------------------------------------
 
 /**
- * InventoryService — defines the contract (API) that InventoryManager must fulfil.
+ * InventoryService -- contract (API) that InventoryManager must implement.
  *
- * Analogous to a C header's function prototypes: every public operation is
- * declared here; implementation lives in InventoryManager.java.
+ * Analogous to a C header's function prototypes: operations are declared here;
+ * all implementation code lives in InventoryManager.java.
  *
- * Operations
- * ──────────
- *  addMedicine      — insert a new medicine into both DSA structures
- *  searchByName     — O(1) HashMap lookup
- *  updateQuantity   — adjust stock for an existing medicine
- *  removeMedicine   — delete from both structures
- *  showAllByExpiry  — in-order BST traversal (chronological display)
- *  showExpiringSoon — query medicines expiring within N days
- *  showLowStock     — query medicines below stock threshold
- *  showAlerts       — combined alert summary
- *  showStats        — inventory statistics dashboard
+ * Method summary
+ * --------------
+ *  addMedicine      -- insert new record into HashMap + B-Tree
+ *  searchByName     -- O(1) HashMap lookup by name
+ *  updateQuantity   -- adjust stock for an existing medicine
+ *  removeMedicine   -- delete from HashMap; rebuild B-Tree
+ *  showAllByExpiry  -- B-Tree in-order traversal (chronological)
+ *  showExpiringSoon -- medicines expiring within EXPIRY_ALERT_DAYS, sorted
+ *  showLowStock     -- medicines below LOW_STOCK_THRESHOLD
+ *  showAlerts       -- combined alert summary
+ *  showStats        -- inventory statistics dashboard
  */
 interface InventoryService {
 
-    /** Add a new medicine to the inventory. */
     void addMedicine(String name, String batchNo, int quantity, String expiryDate);
 
-    /** Search for a medicine by name (O(1) HashMap). */
     void searchByName(String name);
 
-    /** Update the stock quantity of an existing medicine by name. */
     void updateQuantity(String name, int newQuantity);
 
-    /** Remove a medicine from the inventory by name. */
     void removeMedicine(String name);
 
-    /** Display all medicines sorted by expiry date (BST in-order traversal). */
     void showAllByExpiry();
 
-    /** Display medicines expiring within the configured alert window. */
     void showExpiringSoon();
 
-    /** Display medicines with stock below the low-stock threshold. */
     void showLowStock();
 
-    /** Show a combined summary of all active alerts. */
     void showAlerts();
 
-    /** Show inventory statistics (total medicines, total units, etc.). */
     void showStats();
 }
-
