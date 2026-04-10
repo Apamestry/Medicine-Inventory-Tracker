@@ -1,41 +1,29 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 
-export default function SearchSection({ medicines }) {
-
+export default function SearchSection({ onSearch, result }) {
   const [query, setQuery] = useState("");
-  const [result, setResult] = useState(null);
-
-  const searchMedicine = () => {
-
-    const med = medicines.find(
-      m => m.name.toLowerCase() === query.toLowerCase()
-    );
-
-    setResult(med);
-  };
 
   return (
-    <div>
-
+    <div className="box">
       <h2>Search Medicine</h2>
-
-      <input
-        value={query}
-        onChange={(e)=>setQuery(e.target.value)}
-      />
-
-      <button onClick={searchMedicine}>
-        Search
-      </button>
-
-      {result && (
-        <div>
+      <div className="form-row">
+        <input
+          value={query}
+          placeholder="Medicine name"
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
+      <button onClick={() => onSearch(query)}>Search</button>
+      {result ? (
+        <div className="box result-card">
           <h3>{result.name}</h3>
+          <p>Batch: {result.batchNo}</p>
           <p>Qty: {result.quantity}</p>
           <p>Expiry: {result.expiry}</p>
         </div>
+      ) : (
+        query && <p>No medicine found for "{query}".</p>
       )}
-
     </div>
   );
 }

@@ -565,6 +565,192 @@ public class InventoryManager implements InventoryService {
         System.out.println(AppConstants.SEP_HEAVY);
     }
 
+    public Medicine findMedicineByName(String name) {
+        if (name == null || name.isBlank()) return null;
+        return nameIndex.get(name.trim().toLowerCase());
+    }
+
+    public List<Medicine> getAllMedicinesSortedByExpiry() {
+        List<Medicine> result = new ArrayList<>();
+        btInOrderCollect(btRoot, result);
+        return result;
+    }
+
+    public List<Medicine> getExpiringSoonList() {
+        LocalDate today     = LocalDate.now();
+        LocalDate threshold = today.plusDays(AppConstants.EXPIRY_ALERT_DAYS);
+        List<Medicine> result = new ArrayList<>();
+        btCollectRange(btRoot, today.minusDays(1), threshold, result);
+        return result;
+    }
+
+    public List<Medicine> getLowStockList() {
+        List<Medicine> lowStock = new ArrayList<>();
+        for (Medicine med : nameIndex.values()) {
+            if (med.quantity < AppConstants.LOW_STOCK_THRESHOLD) {
+                lowStock.add(med);
+            }
+        }
+        return lowStock;
+    }
+
+    public Map<String, List<Medicine>> getAlertsDashboard() {
+        LocalDate today     = LocalDate.now();
+        LocalDate threshold = today.plusDays(AppConstants.EXPIRY_ALERT_DAYS);
+
+        List<Medicine> expired = new ArrayList<>();
+        List<Medicine> expiringSoon = new ArrayList<>();
+        List<Medicine> lowStock = new ArrayList<>();
+
+        for (Medicine med : nameIndex.values()) {
+            long daysLeft = ChronoUnit.DAYS.between(today, med.expiryDate);
+            if (daysLeft < 0) {
+                expired.add(med);
+            } else if (daysLeft <= AppConstants.EXPIRY_ALERT_DAYS) {
+                expiringSoon.add(med);
+            }
+            if (med.quantity < AppConstants.LOW_STOCK_THRESHOLD) {
+                lowStock.add(med);
+            }
+        }
+
+        Map<String, List<Medicine>> alerts = new HashMap<>();
+        alerts.put("expired", expired);
+        alerts.put("expiringSoon", expiringSoon);
+        alerts.put("lowStock", lowStock);
+        return alerts;
+    }
+
+    public Map<String, Object> getInventoryStats() {
+    Map<String, Object> stats = new HashMap<>();
+    if (nameIndex.isEmpty()) {
+        stats.put("totalMedicines", 0);
+        stats.put("totalStockUnits", 0);
+        stats.put("earliestOnRecord", "N/A");
+        stats.put("nextExpiryDate", "N/A");
+        stats.put("nextExpiryName", "N/A");
+        stats.put("latestOnRecord", "N/A");
+        stats.put("expiredCount", 0);
+        stats.put("expiringSoonCount", 0);
+        stats.put("lowStockCount", 0);
+        return stats;
+    }
+
+    LocalDate today = LocalDate.now();
+    int totalUnits = 0;
+    int expiredCount = 0;
+    int expiringSoon = 0;
+    int lowStockCount = 0;
+
+    for (Medicine med : nameIndex.values()) {
+        totalUnits += med.quantity;
+        long daysLeft = ChronoUnit.DAYS.between(today, med.expiryDate);
+        if (daysLeft < 0) {
+            expiredCount++;
+        } else if (daysLeft <= AppConstants.EXPIRY_ALERT_DAYS) {
+            expiringSoon++;
+        }
+        if (med.quantity < AppConstants.LOW_STOCK_THRESHOLD) {
+            lowStockCount++;
+        }
+    }
+
+    // Safe B-Tree min/max – handle null
+    LocalDate earliestOnRecord = btMinKey(btRoot);
+    LocalDate latestOnRecord = btMaxKey(btRoot);
+    
+    List<Medicine> futureList = new ArrayList<>();
+    btCollectRange(btRoot, today.minusDays(1), LocalDate.MAX, futureList);
+
+    String nextExpiryDate = futureList.isEmpty() 
+        ? "N/A (all medicines expired)" 
+        : futureList.get(0).expiryDate.toString();
+    String nextExpiryName = futureList.isEmpty() 
+        ? "-" 
+        : futureList.get(0).name;
+
+    stats.put("totalMedicines", nameIndex.size());
+    stats.put("totalStockUnits", totalUnits);
+    stats.put("earliestOnRecord", earliestOnRecord != null ? earliestOnRecord.toString() : "N/A");
+    stats.put("nextExpiryDate", nextExpiryDate);
+    stats.put("nextExpiryName", nextExpiryName);
+    stats.put("latestOnRecord", latestOnRecord != null ? latestOnRecord.toString() : "N/A");
+    stats.put("expiredCount", expiredCount);
+    stats.put("expiringSoonCount", expiringSoon);
+    stats.put("lowStockCount", lowStockCount);
+    return stats;
+}
+
+    
+
+    // public Map<String, Object> getInventoryStats() {
+    //     Map<String, Object> stats = new HashMap<>();
+    //     if (nameIndex.isEmpty()) {
+    //         stats.put("totalMedicines", 0);
+    //         stats.put("totalStockUnits", 0);
+    //         stats.put("earliestOnRecord", "N/A");
+    //         stats.put("nextExpiryDate", "N/A");
+    //         stats.put("nextExpiryName", "N/A");
+    //         stats.put("latestOnRecord", "N/A");
+    //         stats.put("expiredCount", 0);
+    //         stats.put("expiringSoonCount", 0);
+    //         stats.put("lowStockCount", 0);
+    //         return stats;
+    //     }
+
+    //     LocalDate today = LocalDate.now();
+    //     int totalUnits = 0;
+    //     int expiredCount = 0;
+    //     int expiringSoon = 0;
+    //     int lowStockCount = 0;
+
+    //     for (Medicine med : nameIndex.values()) {
+    //         totalUnits += med.quantity;
+    //         long daysLeft = ChronoUnit.DAYS.between(today, med.expiryDate);
+    //         if (daysLeft < 0) {
+    //             expiredCount++;
+    //         } else if (daysLeft <= AppConstants.EXPIRY_ALERT_DAYS) {
+    //             expiringSoon++;
+    //         }
+    //         if (med.quantity < AppConstants.LOW_STOCK_THRESHOLD) {
+    //             lowStockCount++;
+    //         }
+    //     }
+
+    //     LocalDate earliestOnRecord = btMinKey(btRoot);
+    //     List<Medicine> futureList = new ArrayList<>();
+    //     btCollectRange(btRoot, today.minusDays(1), LocalDate.MAX, futureList);
+
+    //     String nextExpiryDate = futureList.isEmpty() ? "N/A (all medicines expired)" : futureList.get(0).expiryDate.toString();
+    //     String nextExpiryName = futureList.isEmpty() ? "-" : futureList.get(0).name;
+    //     LocalDate latestOnRecord = btMaxKey(btRoot);
+
+    //     stats.put("totalMedicines", nameIndex.size());
+    //     stats.put("totalStockUnits", totalUnits);
+    //     stats.put("earliestOnRecord", earliestOnRecord.toString());
+    //     stats.put("nextExpiryDate", nextExpiryDate);
+    //     stats.put("nextExpiryName", nextExpiryName);
+    //     stats.put("latestOnRecord", latestOnRecord.toString());
+    //     stats.put("expiredCount", expiredCount);
+    //     stats.put("expiringSoonCount", expiringSoon);
+    //     stats.put("lowStockCount", lowStockCount);
+    //     return stats;
+    // }
+
+    private void btInOrderCollect(BTreeNode node, List<Medicine> result) {
+        if (node == null) return;
+        int k = node.keys.size();
+        for (int i = 0; i < k; i++) {
+            if (!node.isLeaf) {
+                btInOrderCollect(node.children.get(i), result);
+            }
+            result.addAll(node.entries.get(i));
+        }
+        if (!node.isLeaf) {
+            btInOrderCollect(node.children.get(k), result);
+        }
+    }
+
 
     // =========================================================================
     // B-TREE OPERATIONS -- Private Implementation
@@ -828,13 +1014,33 @@ public class InventoryManager implements InventoryService {
      * @param node Tree root.
      * @return Minimum LocalDate key, or null if tree is empty.
      */
+    // private LocalDate btMinKey(BTreeNode node) {
+    //     if (node == null) return null;
+    //     while (!node.isLeaf) {
+    //         node = node.children.get(0);
+    //     }
+    //     return node.keys.get(0);
+    // }
+
     private LocalDate btMinKey(BTreeNode node) {
-        if (node == null) return null;
-        while (!node.isLeaf) {
-            node = node.children.get(0);
-        }
-        return node.keys.get(0);
+    if (node == null) return null;
+    while (!node.isLeaf) {
+        if (node.children.isEmpty()) return null; // safety
+        node = node.children.get(0);
     }
+    if (node.keys.isEmpty()) return null;
+    return node.keys.get(0);
+}
+
+private LocalDate btMaxKey(BTreeNode node) {
+    if (node == null) return null;
+    while (!node.isLeaf) {
+        if (node.children.isEmpty()) return null;
+        node = node.children.get(node.children.size() - 1);
+    }
+    if (node.keys.isEmpty()) return null;
+    return node.keys.get(node.keys.size() - 1);
+}
 
     // -------------------------------------------------------------------------
     // btMaxKey  --  O(log n) rightmost (maximum) key
@@ -849,13 +1055,13 @@ public class InventoryManager implements InventoryService {
      * @param node Tree root.
      * @return Maximum LocalDate key, or null if tree is empty.
      */
-    private LocalDate btMaxKey(BTreeNode node) {
-        if (node == null) return null;
-        while (!node.isLeaf) {
-            node = node.children.get(node.children.size() - 1);
-        }
-        return node.keys.get(node.keys.size() - 1);
-    }
+    // private LocalDate btMaxKey(BTreeNode node) {
+    //     if (node == null) return null;
+    //     while (!node.isLeaf) {
+    //         node = node.children.get(node.children.size() - 1);
+    //     }
+    //     return node.keys.get(node.keys.size() - 1);
+    // }
 
     // -------------------------------------------------------------------------
     // buildBTreeFromMap  --  O(n log n) full rebuild from HashMap
@@ -871,13 +1077,30 @@ public class InventoryManager implements InventoryService {
      * @param map Source map of medicines.
      * @return New B-Tree root (null if map is empty).
      */
+    // private BTreeNode buildBTreeFromMap(Map<String, Medicine> map) {
+    //     BTreeNode root = null;
+    //     for (Medicine med : map.values()) {
+    //         root = btInsert(root, med);
+    //     }
+    //     return root;
+    // }
+
     private BTreeNode buildBTreeFromMap(Map<String, Medicine> map) {
-        BTreeNode root = null;
-        for (Medicine med : map.values()) {
-            root = btInsert(root, med);
-        }
-        return root;
+    BTreeNode root = null;
+    for (Medicine med : map.values()) {
+        root = btInsert(root, med);
     }
+    // If the map is not empty but root somehow is null (shouldn't happen), create a leaf with first medicine
+    if (root == null && !map.isEmpty()) {
+        Medicine first = map.values().iterator().next();
+        root = new BTreeNode(true);
+        root.keys.add(first.expiryDate);
+        List<Medicine> bucket = new ArrayList<>();
+        bucket.add(first);
+        root.entries.add(bucket);
+    }
+    return root;
+}
 
 
     // =========================================================================

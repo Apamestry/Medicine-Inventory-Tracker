@@ -3,3 +3,5 @@ javac -d . *.java
 
 And to run the project using FULL package name
 java MedicineInventory.MedicineTrackerApp
+new command
+java -cp . MedicineInventory.InventoryServer

@@ -153,6 +153,16 @@ class Medicine {
                 + "s  Qty: %-6d  Expires: %s",
                 batchNo, name, quantity, expiryDate);
     }
+
+    public String toJson() {
+        return String.format(
+            "{\"name\":\"%s\",\"batchNo\":\"%s\",\"quantity\":%d,\"expiry\":\"%s\"}",
+            escapeJson(name), escapeJson(batchNo), quantity, expiryDate);
+    }
+
+    private static String escapeJson(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
 }
 
 
